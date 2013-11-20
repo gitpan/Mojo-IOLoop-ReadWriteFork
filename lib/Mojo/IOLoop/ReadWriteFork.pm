@@ -6,7 +6,7 @@ Mojo::IOLoop::ReadWriteFork - Fork a process and read/write from it
 
 =head1 VERSION
 
-0.01
+0.02
 
 =head1 DESCRIPTION
 
@@ -17,6 +17,8 @@ Patches that enable the L</read> event to see the difference between STDERR
 and STDOUT are more than welcome.
 
 =head1 SYNOPSIS
+
+=head2 Standalone
 
   my $fork = Mojo::IOLoop::ReadWriteFork->new;
   my $cat_result = '';
@@ -41,6 +43,10 @@ and STDOUT are more than welcome.
     conduit => 'pty',
   );
 
+=head2 In a Mojolicios::Controller
+
+See L<https://github.com/jhthorsen/mojo-ioloop-readwritefork/tree/master/example/tail.pl>.
+
 =cut
 
 use Mojo::Base 'Mojo::EventEmitter';
@@ -52,7 +58,7 @@ use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 131072;
 use constant DEBUG => $ENV{MOJO_READWRITE_FORK_DEBUG} || 0;
 use constant WAIT_PID_INTERVAL => $ENV{WAIT_PID_INTERVAL} || 0.01;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 EVENTS
 
@@ -227,9 +233,8 @@ sub _setup_recurring_child_alive_check {
       my $obj = $reactor->{forks}{$pid} || {};
 
       if(waitpid($pid, WNOHANG) <= 0) {
-        $obj->{stop} or next;
         # NOTE: cannot use kill() to check if the process is alive, since
-        # the process might be owned by another user. (super tiadm)
+        # the process might be owned by another user.
         -d "/proc/$pid" and next;
       }
 
