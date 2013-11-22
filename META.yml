@@ -26,4 +26,4 @@ resources:
   homepage: https://metacpan.org/release/Mojo-IOLoop-ReadWriteFork
   license: http://dev.perl.org/licenses/
   repository: https://github.com/jhthorsen/mojo-ioloop-readwritefork
-version: 0.03
+version: 0.04
