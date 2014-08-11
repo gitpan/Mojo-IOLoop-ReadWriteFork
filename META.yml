@@ -4,12 +4,12 @@ author:
   - 'Jan Henning Thorsen <jhthorsen@cpan.org>'
 build_requires:
   Test::Memory::Cycle: 1.04
-  Test::More: 0.90
+  Test::More: 0.88
 configure_requires:
   ExtUtils::MakeMaker: 0
 dynamic_config: 1
 generated_by: 'ExtUtils::MakeMaker version 6.66, CPAN::Meta::Converter version 2.120921'
-license: perl
+license: artistic_2
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
@@ -23,7 +23,6 @@ requires:
   Mojolicious: 4.30
 resources:
   bugtracker: https://github.com/jhthorsen/mojo-ioloop-readwritefork/issues
-  homepage: https://metacpan.org/release/Mojo-IOLoop-ReadWriteFork
-  license: http://dev.perl.org/licenses/
-  repository: https://github.com/jhthorsen/mojo-ioloop-readwritefork
-version: 0.05
+  homepage: https://github.com/jhthorsen/mojo-ioloop-readwritefork
+  repository: https://github.com/jhthorsen/mojo-ioloop-readwritefork.git
+version: 0.06

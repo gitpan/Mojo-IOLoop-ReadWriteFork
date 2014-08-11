@@ -6,7 +6,7 @@ Mojo::IOLoop::ReadWriteFork - Fork a process and read/write from it
 
 =head1 VERSION
 
-0.05
+0.06
 
 =head1 DESCRIPTION
 
@@ -50,15 +50,16 @@ See L<https://github.com/jhthorsen/mojo-ioloop-readwritefork/tree/master/example
 =cut
 
 use Mojo::Base 'Mojo::EventEmitter';
-use IO::Pty;
 use Mojo::Util 'url_escape';
+use Errno qw( EAGAIN ECONNRESET EINTR EPIPE EWOULDBLOCK );
+use IO::Pty;
 use POSIX ':sys_wait_h';
 use Scalar::Util ();
 use constant CHUNK_SIZE => $ENV{MOJO_CHUNK_SIZE} || 131072;
 use constant DEBUG => $ENV{MOJO_READWRITE_FORK_DEBUG} || 0;
 use constant WAIT_PID_INTERVAL => $ENV{WAIT_PID_INTERVAL} || 0.01;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 EVENTS
 
@@ -100,6 +101,37 @@ has reactor => sub {
 
 =head1 METHODS
 
+=head2 close
+
+  $self = $self->close("stdin");
+
+Close STDIN stream to the child process immediately.
+
+=cut
+
+sub close {
+  my $self = shift;
+  my $what = $_[0] eq 'stdout' ? 'stdout_read' : 'stdin_write'; # stdout_read is EXPERIMENTAL
+  my $fh = delete $self->{$what} or return $self;
+  CORE::close($fh) or $self->emit(error => $!);
+  $self;
+}
+
+=head2 run
+
+  $self = $self->run($program, @program_args);
+
+Simpler version of L</start>.
+
+=cut
+
+sub run {
+  my ($self, $program, @program_args) = @_;
+
+  $self->start(program => $program, program_args => \@program_args);
+  $self;
+}
+
 =head2 start
 
   $self->start(
@@ -127,6 +159,7 @@ sub start {
   my $args = ref $_[0] ? $_[0] : {@_};
 
   $args->{env} = { %ENV };
+  $self->{errno} = 0;
   $args->{program} or die 'program is required input';
   $args->{conduit} ||= 'pipe';
   $args->{program_args} ||= [];
@@ -166,8 +199,8 @@ sub _start {
   elsif($pid) { # parent ===================================================
     warn "[$pid] Child starting ($args->{program} @{$args->{program_args}})\n" if DEBUG;
     $self->{pid} = $pid;
-    $self->{stdin_write} = $stdin_write;
     $self->{stdout_read} = $stdout_read;
+    $self->{stdin_write} = $stdin_write;
     $stdout_read->close_slave if defined $stdout_read and UNIVERSAL::isa($stdout_read, 'IO::Pty');
 
     Scalar::Util::weaken($self);
@@ -191,6 +224,7 @@ sub _start {
     });
     $self->reactor->watch($stdout_read, 1, 0);
     $self->_setup_recurring_child_alive_check($pid);
+    $self->_write;
   }
   else { # child ===========================================================
     if($args->{conduit} eq 'pty') {
@@ -201,8 +235,8 @@ sub _start {
     }
 
     warn "[$$] Starting $args->{program} @{ $args->{program_args} }\n" if DEBUG;
-    close $stdin_write;
-    close $stdout_read;
+    CORE::close($stdin_write);
+    CORE::close($stdout_read);
     open STDIN, '<&' . fileno $stdin_read or die $!;
     open STDOUT, '>&' . fileno $stdout_write or die $!;
     open STDERR, '>&' . fileno $stdout_write or die $!;
@@ -253,19 +287,28 @@ sub _setup_recurring_child_alive_check {
 
 =head2 write
 
-  $self->write($buffer);
+  $self = $self->write($chunk);
+  $self = $self->write($chunk, $cb);
 
-Used to write data to the child process.
+Used to write data to the child process STDIN. An optional callback will be
+called once STDIN is drained.
+
+Example:
+
+  $self->write("some data\n", sub {
+    my ($self) = @_;
+    $self->close;
+  });
 
 =cut
 
 sub write {
-  my($self, $buffer) = @_;
+  my ($self, $chunk, $cb) = @_;
 
-  $self->{stdin_write} or return;
-  print { $self->{stdin_write} } $buffer;
-  $self->{stdin_write}->flush or die "Write buffer (" .url_escape($buffer) .") failed: $!";
-  warn "[${ \$self->pid }] Wrote buffer (" .url_escape($buffer) .")\n" if DEBUG;
+  $self->once(drain => $cb) if $cb;
+  $self->{stdin_buffer} .= $chunk;
+  $self->_write if $self->{stdin_write};
+  $self;
 }
 
 =head2 kill
@@ -286,6 +329,11 @@ sub kill {
   kill $signal, $pid;
 }
 
+sub _error {
+  return if $! == EAGAIN || $! == EINTR || $! == EWOULDBLOCK;
+  return $_[0]->kill if $! == ECONNRESET || $! == EPIPE;
+  return $_[0]->emit(error => $!)->kill;
+}
 
 sub _cleanup {
   my $self = shift;
@@ -294,7 +342,6 @@ sub _cleanup {
   $reactor->watch($self->{stdout_read}, 0, 0) if $self->{stdout_read};
   $reactor->remove(delete $self->{stdout_read}) if $self->{stdout_read};
   $reactor->remove(delete $self->{delay}) if $self->{delay};
-  $reactor->remove(delete $self->{stdin_write}) if $self->{stdin_write};
 }
 
 sub _read {
@@ -302,12 +349,32 @@ sub _read {
   my $stdout_read = $self->{stdout_read} or return;
   my $read = $stdout_read->sysread(my $buffer, CHUNK_SIZE, 0);
 
-  $self->{errno} = $!;
+  $self->{errno} = $! // 0;
 
   return unless defined $read;
   return unless $read;
   warn "[$self->{pid}] Got buffer (" .url_escape($buffer) .")\n" if DEBUG;
   $self->emit_safe(read => $buffer);
+}
+
+sub _write {
+  my $self = shift;
+
+  return unless length $self->{stdin_buffer};
+  my $stdin_write = $self->{stdin_write};
+  my $written = $stdin_write->syswrite($self->{stdin_buffer});
+  return $self->_error unless defined $written;
+  my $chunk = substr $self->{stdin_buffer}, 0, $written, '';
+  warn "[${ \$self->pid }] Wrote buffer (" .url_escape($chunk) .")\n" if DEBUG;
+
+  if (length $self->{stdin_buffer}) {
+    # This is one ugly hack because it does not seem like IO::Pty play
+    # nice with Mojo::Reactor(::EV) ->io(...) and ->watch(...)
+    $self->reactor->timer(0.01 => sub { $self and $self->_write });
+  }
+  else {
+    $self->emit_safe('drain');
+  }
 }
 
 sub DESTROY { shift->_cleanup }

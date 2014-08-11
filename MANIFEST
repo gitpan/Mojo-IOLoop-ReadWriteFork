@@ -1,0 +1,17 @@
+.ship.conf
+Changes
+cpanfile
+example/tail.pl
+lib/Mojo/IOLoop/ReadWriteFork.pm
+Makefile.PL
+MANIFEST			This list of files
+README
+t/00-basic.t
+t/bash.t
+t/callback.t
+t/close.t
+t/drain.t
+t/leaky-errno.t
+t/telnet.t
+META.yml                                 Module YAML meta-data (added by MakeMaker)
+META.json                                Module JSON meta-data (added by MakeMaker)
