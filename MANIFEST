@@ -1,3 +1,4 @@
+.perltidyrc
 .ship.conf
 .travis.yml
 Changes
@@ -12,7 +13,10 @@ t/bash.t
 t/callback.t
 t/close.t
 t/drain.t
+t/invalid.t
 t/leaky-errno.t
+t/ssh.t
+t/sudo.t
 t/telnet.t
 META.yml                                 Module YAML meta-data (added by MakeMaker)
 META.json                                Module JSON meta-data (added by MakeMaker)
